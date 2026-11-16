@@ -1,0 +1,203 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum JobStatus {
+  queued
+  submitting
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+enum GenerationType {
+  text_to_video
+  image_to_video
+}
+
+enum AspectRatio {
+  ratio_16_9
+  ratio_9_16
+  ratio_1_1
+}
+
+model User {
+  id           String          @id @default(cuid())
+  email        String          @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  sessions     Session[]
+  jobs         GenerationJob[]
+  videos       Video[]
+  projects     VideoProject[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model GenerationJob {
+  id                 String         @id @default(cuid())
+  userId             String
+  type               GenerationType
+  status             JobStatus      @default(queued)
+  prompt             String
+  enhancedPrompt     String?
+  negativePrompt     String?
+  imageInputUrl      String?
+  modelKey           String?
+  requestedModelKey  String?
+  providerKey        String?
+  providerJobId      String?
+  providerMeta       Json?
+  aspectRatio        AspectRatio    @default(ratio_16_9)
+  durationSeconds    Float?
+  resolution         String?
+  seed               Int?
+  settings           Json?
+  queuePosition      Int?
+  progress           Float?
+  progressMessage    String?
+  estimatedWaitSec   Int?
+  attemptCount       Int            @default(0)
+  lastError          String?
+  errorDetails       Json?
+  outputVideoId      String?        @unique
+  projectId          String?
+  sceneIndex         Int?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  startedAt          DateTime?
+  completedAt        DateTime?
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outputVideo        Video?         @relation("JobOutput", fields: [outputVideoId], references: [id])
+  project            VideoProject?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  events             JobEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([providerKey])
+}
+
+model JobEvent {
+  id        String        @id @default(cuid())
+  jobId     String
+  level     String
+  message   String
+  data      Json?
+  createdAt DateTime      @default(now())
+  job       GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+}
+
+model Video {
+  id            String         @id @default(cuid())
+  userId        String
+  storageKey    String
+  storageUrl    String
+  mimeType      String         @default("video/mp4")
+  sizeBytes     Int?
+  thumbnailKey  String?
+  thumbnailUrl  String?
+  durationSec   Float?
+  width         Int?
+  height        Int?
+  prompt        String
+  negativePrompt String?
+  modelKey      String?
+  providerKey   String?
+  type          GenerationType
+  aspectRatio   AspectRatio
+  seed          Int?
+  settings      Json?
+  sourceJobId   String?
+  projectId     String?
+  sceneIndex    Int?
+  createdAt     DateTime       @default(now())
+  deletedAt     DateTime?
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobOutputFor  GenerationJob? @relation("JobOutput")
+  project       VideoProject?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([projectId])
+}
+
+model VideoProject {
+  id          String          @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  basePrompt  String?
+  styleNotes  String?
+  settings    Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs        GenerationJob[]
+  videos      Video[]
+
+  @@index([userId, updatedAt])
+}
+
+model ProviderHealth {
+  id                  String   @id @default(cuid())
+  providerKey         String   @unique
+  modelKey            String
+  displayName         String
+  available           Boolean  @default(false)
+  supportedTypes      String[]
+  documentedQuota     String?
+  remainingQuota      String?
+  queueStatus         String?
+  lastCheckedAt       DateTime?
+  lastSuccessAt       DateTime?
+  lastErrorAt         DateTime?
+  lastError           String?
+  cooldownUntil       DateTime?
+  consecutiveFailures Int      @default(0)
+  metadata            Json?
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+}
+
+model ProviderMetric {
+  id            String   @id @default(cuid())
+  providerKey   String
+  success       Boolean
+  latencyMs     Int?
+  errorMessage  String?
+  jobId         String?
+  createdAt     DateTime @default(now())
+
+  @@index([providerKey, createdAt])
+}
+
+model CleanupSetting {
+  id              String   @id @default("singleton")
+  userId          String?  @unique
+  autoDeleteDays  Int?
+  keepFailedJobs  Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
