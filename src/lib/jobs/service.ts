@@ -128,26 +128,45 @@ async function trySubmit(job: any): Promise<boolean> {
   // If a specifically requested model/provider has no remaining compatible candidates,
   // fall back to any compatible provider so generation can still proceed.
   if (candidates.length === 0 && (job.requestedModelKey || (job.settings as any)?.requestedProviderKey)) {
-    await logEvent(job.id, 'info', 'Requested model/provider unavailable; falling back to automatic provider selection');
-    candidates = await selectProviders({
+    const allCompatible = await selectProviders({
       type: job.type as GenerationType,
       requestedModelKey: null,
       requestedProviderKey: null,
-      excludeProviderKeys: Array.from(tried),
+      excludeProviderKeys: [],
     });
+    const remaining = allCompatible.filter((c) => !tried.has(c.adapter.key));
+    if (remaining.length > 0) {
+      await logEvent(job.id, 'info', 'Requested model/provider unavailable or already attempted; falling back to other compatible providers');
+      candidates = remaining;
+    } else {
+      candidates = [];
+    }
   }
 
   if (candidates.length === 0) {
     const typeLabel = job.type === 'image_to_video' ? 'image-to-video' : 'text-to-video';
+    // Distinguish "none compatible at all" from "all compatible providers were attempted and failed"
+    const allCompatible = await selectProviders({
+      type: job.type as GenerationType,
+      requestedModelKey: null,
+      requestedProviderKey: null,
+      excludeProviderKeys: [],
+    });
+    const allTried = allCompatible.length > 0 && allCompatible.every((c) => tried.has(c.adapter.key));
+    const prevErr = (job.providerMeta as any)?.lastProviderError || job.lastError;
+    const errSummary = prevErr ? ` Last error: ${String(prevErr).slice(0, 300)}` : '';
+    const msg = allTried
+      ? `All compatible ${typeLabel} providers were attempted but none succeeded for this job. Free public Spaces may be busy, rate-limited, or temporarily out of quota; please try again later.${errSummary}`
+      : `No compatible ${typeLabel} providers are configured for this request. Try automatic model selection or a different mode.`;
     await prisma.generationJob.update({
       where: { id: job.id },
       data: {
         status: 'failed',
-        lastError: `No compatible ${typeLabel} providers are configured or currently available for this request. Try automatic model selection or a different mode.`,
+        lastError: msg.slice(0, 1000),
         completedAt: new Date(),
       },
     });
-    await logEvent(job.id, 'error', 'No compatible provider candidates available', { type: job.type, requestedModelKey: job.requestedModelKey || null });
+    await logEvent(job.id, 'error', allTried ? 'All compatible providers attempted and failed' : 'No compatible provider candidates available', { type: job.type, requestedModelKey: job.requestedModelKey || null, tried: Array.from(tried) });
     return false;
   }
 

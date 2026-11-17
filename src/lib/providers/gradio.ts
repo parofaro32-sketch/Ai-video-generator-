@@ -149,6 +149,29 @@ export function pickFinalFromEvents(events: GradioEvent[]): GradioEvent | null {
   return null;
 }
 
+function formatProviderError(data: unknown): string {
+  if (data == null) return 'Provider returned an error with no details. The free Space may be busy, out of quota, or temporarily unavailable.';
+  if (typeof data === 'string') return data || 'Provider returned an empty error.';
+  if (Array.isArray(data)) {
+    const parts = data.map((x) => {
+      if (x == null) return '';
+      if (typeof x === 'string') return x;
+      if (typeof x === 'object' && x && 'message' in (x as any)) return String((x as any).message);
+      try { return JSON.stringify(x); } catch { return String(x); }
+    }).filter(Boolean);
+    if (parts.length) return parts.join(' | ');
+    return 'Provider returned an error with no details. The free Space may be busy, out of quota, or temporarily unavailable.';
+  }
+  if (typeof data === 'object') {
+    const d = data as any;
+    if (d.message) return String(d.message);
+    if (d.error) return typeof d.error === 'string' ? d.error : formatProviderError(d.error);
+    if (d.detail) return typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+    try { return JSON.stringify(d); } catch { return String(d); }
+  }
+  return String(data);
+}
+
 export function fileDataToUrl(spaceUrl: string, file: GradioFileData | string | null | undefined): string | undefined {
   if (!file) return undefined;
   if (typeof file === 'string') {
@@ -199,9 +222,18 @@ export class GradioProviderAdapter implements ProviderAdapter {
       if (!res.ok) {
         return { available: false, checkedAt: new Date().toISOString(), latencyMs, status: `HTTP ${res.status}`, error: `HTTP ${res.status}` };
       }
-      const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null) as any;
       const ok = !!json && typeof json === 'object';
-      return { available: ok, checkedAt: new Date().toISOString(), latencyMs, status: ok ? 'reachable' : 'invalid-config' };
+      if (!ok) return { available: false, checkedAt: new Date().toISOString(), latencyMs, status: 'invalid-config' };
+      // Consider the space "available" for routing if its config is reachable.
+      // Runtime availability (ZeroGPU quota/queue) is dynamic and handled via submit/status with fallback.
+      const runtime = json?.runtime;
+      let status = 'reachable';
+      if (runtime && typeof runtime === 'object') {
+        if (runtime.stage === 'RUNNING' || runtime.stage === 'RUNNING_BUILDING') status = `reachable (${String(runtime.stage).toLowerCase()})`;
+        else if (runtime.stage) status = `config-ok (${String(runtime.stage).toLowerCase()})`;
+      }
+      return { available: true, checkedAt: new Date().toISOString(), latencyMs, status };
     } catch (e: any) {
       return { available: false, checkedAt: new Date().toISOString(), error: e?.message || String(e) };
     }
@@ -231,8 +263,16 @@ export class GradioProviderAdapter implements ProviderAdapter {
       if (!input.imageInput) throw new Error('Image input required');
       let uploadedPath: string | undefined;
       if (input.imageInput.data) {
-        const blob = new Blob([input.imageInput.data as any], { type: input.imageInput.mimeType || 'image/png' });
-        uploadedPath = await gradioUploadFile(this.cfg.spaceUrl, blob, input.imageInput.filename || 'input.png');
+        let buf = Buffer.from(input.imageInput.data as any);
+        let mime = input.imageInput.mimeType || 'image/png';
+        if (buf.length >= 12) {
+          if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) mime = 'image/png';
+          else if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) mime = 'image/jpeg';
+          else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
+          else if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') mime = 'image/webp';
+        }
+        const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : mime === 'image/gif' ? 'gif' : 'png';
+        uploadedPath = await gradioUploadFile(this.cfg.spaceUrl, new Blob([new Uint8Array(buf)], { type: mime }), input.imageInput.filename || `input.${ext}`);
       } else if (input.imageInput.url) {
         // Fetch and upload. Supports absolute URLs and local storage paths (/api/storage/...).
         let buf: Buffer;
@@ -244,15 +284,21 @@ export class GradioProviderAdapter implements ProviderAdapter {
           const local = await readLocalStorage(key);
           if (!local) throw new Error(`Local input image not found: ${key}`);
           buf = local;
-          const lower = key.toLowerCase();
-          mime = lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'image/jpeg' : lower.endsWith('.webp') ? 'image/webp' : lower.endsWith('.gif') ? 'image/gif' : 'image/png';
         } else {
-          const r = await fetch(url);
+          const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
           if (!r.ok) throw new Error(`Failed to fetch input image: HTTP ${r.status}`);
           buf = Buffer.from(await r.arrayBuffer());
-          mime = r.headers.get('content-type') || mime;
+          const ct = r.headers.get('content-type') || '';
+          if (ct) mime = ct.split(';')[0].trim();
         }
-        uploadedPath = await gradioUploadFile(this.cfg.spaceUrl, new Blob([new Uint8Array(buf)], { type: mime }), input.imageInput.filename || 'input.png');
+        if (buf.length >= 12) {
+          if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) mime = 'image/png';
+          else if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) mime = 'image/jpeg';
+          else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
+          else if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') mime = 'image/webp';
+        }
+        const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : mime === 'image/gif' ? 'gif' : 'png';
+        uploadedPath = await gradioUploadFile(this.cfg.spaceUrl, new Blob([new Uint8Array(buf)], { type: mime }), input.imageInput.filename || `input.${ext}`);
       }
       if (!uploadedPath) throw new Error('Could not prepare image upload');
       const fileData: GradioFileData = { path: uploadedPath, url: null as any, orig_name: input.imageInput.filename || 'input.png', mime_type: input.imageInput.mimeType || 'image/png', size: null, is_stream: false, meta: { _type: 'gradio.FileData' } };
@@ -302,7 +348,7 @@ export class GradioProviderAdapter implements ProviderAdapter {
       return { status: last ? 'running' : 'queued', progress, progressMessage: msg, queuePosition, estimatedWaitSec: est, raw: { eventsCount: events.length } };
     }
     if (final.event === 'error') {
-      const msg = typeof final.data === 'string' ? final.data : (Array.isArray(final.data) ? String(final.data[0]) : JSON.stringify(final.data || 'Generation error'));
+      const msg = formatProviderError(final.data);
       return { status: 'failed', error: msg, raw: final };
     }
     return { status: 'succeeded', raw: { completeData: final.data } };
@@ -327,16 +373,77 @@ export class GradioProviderAdapter implements ProviderAdapter {
   }
 
   private defaultExtract(data: unknown): { file?: GradioFileData | string; seed?: number } | null {
-    // common: [ { video: {path/url,...}, subtitles:null }, seed ]
-    if (Array.isArray(data)) {
-      const first = data[0];
-      if (first && typeof first === 'object') {
-        if ('video' in (first as any)) return { file: (first as any).video, seed: typeof data[1] === 'number' ? data[1] : undefined };
-        if ('path' in (first as any) || 'url' in (first as any)) return { file: first as any, seed: typeof data[1] === 'number' ? data[1] : undefined };
+    const seed = Array.isArray(data) ? data.find((x) => typeof x === 'number' && Number.isFinite(x)) as number | undefined : undefined;
+
+    const isFileLike = (v: any): v is GradioFileData | string => {
+      if (!v) return false;
+      if (typeof v === 'string') {
+        if (/^https?:\/\//i.test(v)) return true;
+        if (/\.(mp4|webm|mov|gif|avi|mkv)(\?|$)/i.test(v)) return true;
+        if (v.startsWith('/tmp/') || v.startsWith('/gradio') || v.includes('gradio_api/file')) return true;
+        return false;
       }
-      if (typeof first === 'string') return { file: first };
+      if (typeof v === 'object') {
+        if (v.video) return true;
+        if (typeof v.url === 'string' && v.url) return /\.(mp4|webm|mov|gif)(\?|$)/i.test(v.url) || v.url.includes('/gradio_api/file=');
+        if (typeof v.path === 'string' && v.path) return /\.(mp4|webm|mov|gif)(\?|$)/i.test(v.path) || v.path.startsWith('/tmp/') || v.path.includes('gradio');
+        // some gradio payloads nest file data
+        if (v.value && isFileLike(v.value)) return true;
+        if (v.data && isFileLike(v.data)) return true;
+      }
+      return false;
+    };
+
+    const toFile = (v: any): GradioFileData | string | undefined => {
+      if (!v) return undefined;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object') {
+        if (v.video) return toFile(v.video);
+        if (v.path || v.url) return v as GradioFileData;
+        if (v.value && isFileLike(v.value)) return toFile(v.value);
+        if (v.data && isFileLike(v.data)) return toFile(v.data);
+      }
+      return undefined;
+    };
+
+    const scan = (value: unknown, depth = 0): GradioFileData | string | undefined => {
+      if (depth > 4 || value == null) return undefined;
+      if (isFileLike(value)) return toFile(value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const found = scan(item, depth + 1);
+          if (found) return found;
+        }
+        return undefined;
+      }
+      if (typeof value === 'object') {
+        // prefer common keys first
+        const obj = value as any;
+        for (const k of ['video', 'videos', 'file', 'files', 'output', 'outputs', 'path', 'url', 'value', 'data']) {
+          if (k in obj) {
+            const found = scan(obj[k], depth + 1);
+            if (found) return found;
+          }
+        }
+        for (const v of Object.values(obj)) {
+          const found = scan(v, depth + 1);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
+
+    // Fast paths
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      if (first && typeof first === 'object' && first.video) return { file: first.video, seed };
+      if (first && typeof first === 'object' && (first.path || first.url)) return { file: first, seed };
+      if (typeof first === 'string' && isFileLike(first)) return { file: first, seed };
     }
-    if (data && typeof data === 'object' && 'video' in (data as any)) return { file: (data as any).video };
+    if (data && typeof data === 'object' && 'video' in (data as any)) return { file: (data as any).video, seed };
+
+    const found = scan(data);
+    if (found) return { file: found, seed };
     return null;
   }
 }

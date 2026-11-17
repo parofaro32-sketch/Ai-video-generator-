@@ -212,14 +212,31 @@ const cogVideoX2B: GradioEndpointConfig = {
     ];
   },
   extractVideo: (data) => {
-    if (Array.isArray(data)) {
-      const first = data[0] as any;
-      if (first && typeof first === 'object') {
-        if (first.video) return { file: first.video };
-        if (first.path || first.url) return { file: first };
+    const isVideoLike = (v: any) => {
+      if (!v) return false;
+      if (typeof v === 'string') return /\.(mp4|webm|mov|gif)(\?|$)/i.test(v) || v.includes('/gradio_api/file=') || v.startsWith('/tmp/');
+      if (typeof v === 'object') {
+        if (v.video) return true;
+        const p = v.path || v.url || '';
+        if (typeof p === 'string' && p) return /\.(mp4|webm|mov|gif)(\?|$)/i.test(p) || p.includes('/gradio_api/file=') || p.startsWith('/tmp/');
       }
-      if (typeof first === 'string') return { file: first };
+      return false;
+    };
+    const toFile = (v: any) => {
+      if (!v) return undefined;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object') return v.video ? v.video : v;
+      return undefined;
+    };
+    if (Array.isArray(data)) {
+      // try first, then scan all outputs
+      const candidates = [data[0], ...data.slice(1)];
+      for (const item of candidates) {
+        if (isVideoLike(item)) return { file: toFile(item) };
+        if (item && typeof item === 'object' && item.value && isVideoLike(item.value)) return { file: toFile(item.value) };
+      }
     }
+    if (data && typeof data === 'object' && isVideoLike(data)) return { file: toFile(data) };
     return null;
   },
 };
@@ -401,7 +418,7 @@ const wan22I2V: GradioEndpointConfig = {
     const { seed, randomize } = pickSeed(input.seed);
     const duration = Math.max(0.5, Math.min(5, input.durationSec ?? 3.5));
     const negative = input.negativePrompt ?? '色调艳丽, 过曝, 静态, 细节模糊不清, 字幕, 最差质量, 低质量, 丑陋的, 畸形的, 静止不动的画面, 杂乱的背景, 水印, 文字';
-    // inputs: [image, prompt, inference_steps, negative_prompt, duration, guidance_scale_high, guidance_scale_low, seed, randomize_seed]
+    // inputs: [image, prompt, inference_steps, negative_prompt, duration, guidance_scale_high, guidance_scale_low, seed, randomize_seed, end_image(optional)]
     return [
       uploadedImage,
       input.prompt,
@@ -412,6 +429,7 @@ const wan22I2V: GradioEndpointConfig = {
       1,
       seed,
       randomize,
+      null,
     ];
   },
   extractVideo: (data) => {
