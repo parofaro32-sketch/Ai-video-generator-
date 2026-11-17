@@ -21,7 +21,7 @@ const schema = z.object({
 
 export async function GET() {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const { prisma } = await import('@/lib/db');
     const jobs = await prisma.generationJob.findMany({
@@ -39,7 +39,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const body = await req.json();
     const parsed = schema.safeParse(body);

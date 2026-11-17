@@ -123,11 +123,11 @@ export async function selectProviders(opts: {
   // load health rows
   const keys = candidates.map((c) => c.key);
   const healthRows = await prisma.providerHealth.findMany({ where: { providerKey: { in: keys } } });
-  const healthMap = new Map(healthRows.map((h) => [h.providerKey, h]));
+  const healthMap = new Map<string, any>(healthRows.map((h: any) => [h.providerKey, h]));
   const now = Date.now();
 
   const scored = candidates.map((adapter) => {
-    const h = healthMap.get(adapter.key);
+    const h = healthMap.get(adapter.key) as any;
     let score = 100 - adapter.priority; // base from configured priority
     let reason = 'configured';
     if (h) {

@@ -5,7 +5,7 @@ import { getStorage } from '@/lib/storage';
 
 export async function DELETE(_req: Request, ctx: any) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const { id } = await ctx.params;
     const video = await prisma.video.findFirst({ where: { id, userId: user.id } });

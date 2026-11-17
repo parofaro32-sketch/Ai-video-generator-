@@ -7,7 +7,7 @@ const ALLOWED = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export async function POST(req: Request) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const form = await req.formData();
     const file = form.get('file');

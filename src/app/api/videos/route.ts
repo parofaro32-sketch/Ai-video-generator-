@@ -4,7 +4,7 @@ import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } fro
 
 export async function GET() {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const videos = await prisma.video.findMany({
     where: { userId: user.id, deletedAt: null },

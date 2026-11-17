@@ -21,7 +21,7 @@ function enhance(prompt: string, type?: string) {
 
 export async function POST(req: Request) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const body = await req.json();
     const parsed = schema.safeParse(body);

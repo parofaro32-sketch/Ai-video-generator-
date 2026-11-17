@@ -4,7 +4,7 @@ import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } fro
 
 export async function GET() {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const setting = await prisma.cleanupSetting.findUnique({ where: { userId: user.id } });
     return NextResponse.json({ setting: setting || { autoDeleteDays: null, keepFailedJobs: true } });
@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const body = await req.json().catch(() => ({}));
     const autoDeleteDays = body.autoDeleteDays == null ? null : Math.max(1, Math.min(365, Number(body.autoDeleteDays) || 30));

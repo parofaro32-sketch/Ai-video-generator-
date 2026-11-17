@@ -16,7 +16,7 @@ async function hasFfmpeg() {
 
 export async function POST(_req: Request, ctx: any) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
     const { id } = await ctx.params;
     const project = await prisma.videoProject.findFirst({

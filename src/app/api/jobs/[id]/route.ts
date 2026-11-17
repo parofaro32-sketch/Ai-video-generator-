@@ -5,9 +5,9 @@ import { getJobForUser, processJobUntilSettledOrTimeout } from '@/lib/jobs/servi
 
 export async function GET(_req: Request, ctx: any) {
   const { user, response } = await requireApiUser();
-  if (!user) return response;
+  if (!user) return response!;
   try {
-    const { id } = await ctx.params;
+    const { id } = (await ctx.params) as { id: string };
     const tick = await processJobUntilSettledOrTimeout(id, user.id, 12000).catch(() => null);
     const job = tick || await getJobForUser(id, user.id);
     if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 });

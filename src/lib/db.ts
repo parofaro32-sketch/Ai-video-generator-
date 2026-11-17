@@ -1,33 +1,58 @@
 import { PrismaClient } from '@prisma/client';
+import { getJsonDb } from './json-db';
 
 export function resolveDatabaseUrl(): string | undefined {
-  const url =
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.DATABASE_PRIVATE_URL ||
-    process.env.NEON_DATABASE_URL;
-  if (url && !process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = url;
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.POSTGRES_PRISMA_URL,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_URL_NON_POOLING,
+    process.env.POSTGRES_URL_NO_SSL,
+    process.env.DATABASE_URL_UNPOOLED,
+    process.env.DATABASE_PRIVATE_URL,
+    process.env.NEON_DATABASE_URL,
+    process.env.PRISMA_DATABASE_URL,
+    process.env.SUPABASE_DB_URL,
+  ];
+  for (const c of candidates) {
+    const v = typeof c === 'string' ? c.trim() : '';
+    if (v) {
+      if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
+        process.env.DATABASE_URL = v;
+      }
+      return v;
+    }
   }
-  return url;
+  return undefined;
 }
 
 const databaseUrl = resolveDatabaseUrl();
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+// When no Postgres URL is configured, fall back to a local JSON-backed store so
+// the app (including sign-up/sign-in) works without requiring Vercel/Prisma DB setup.
+// Note: on serverless (e.g. Vercel) this fallback is ephemeral across cold instances;
+// configure a persistent DATABASE_URL for durable production data.
+export const isUsingFallbackDb = !databaseUrl;
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+const globalForPrisma = globalThis as unknown as { prisma?: any };
+
+function createPrismaClient() {
+  if (isUsingFallbackDb) {
+    return getJsonDb();
+  }
+  return new PrismaClient({
     ...(databaseUrl ? { datasourceUrl: databaseUrl } : {}),
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+export const prisma: any = globalForPrisma.prisma ?? createPrismaClient();
+
+if (process.env.NODE_ENV !== 'production' || isUsingFallbackDb) globalForPrisma.prisma = prisma;
 
 export function assertDatabaseConfigured() {
+  // In fallback mode the JSON store is available; do not block.
+  if (isUsingFallbackDb) return;
   if (!resolveDatabaseUrl()) {
     throw new Error(
       'Database is not configured. Set DATABASE_URL (PostgreSQL) in environment variables. On Vercel, add a Postgres database (Vercel Postgres/Neon/Supabase) and ensure DATABASE_URL or POSTGRES_PRISMA_URL is set, then run `npx prisma db push` against the database.'
@@ -36,12 +61,13 @@ export function assertDatabaseConfigured() {
 }
 
 export function isDatabaseConfigurationError(e: unknown): boolean {
+  if (isUsingFallbackDb) return false;
   const msg = e instanceof Error ? e.message : String(e);
   return (
     msg.includes('Environment variable not found: DATABASE_URL') ||
-    msg.includes('DATABASE_URL') && msg.includes('not found') ||
+    (msg.includes('DATABASE_URL') && msg.includes('not found')) ||
     msg.includes('Database is not configured') ||
-    msg.includes('Invalid `prisma') && msg.includes('invocation') && msg.includes('DATABASE_URL')
+    (msg.includes('Invalid `prisma') && msg.includes('invocation') && msg.includes('DATABASE_URL'))
   );
 }
 
