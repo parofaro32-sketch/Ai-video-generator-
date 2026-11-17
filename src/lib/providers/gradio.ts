@@ -226,7 +226,7 @@ export class GradioProviderAdapter implements ProviderAdapter {
       const ok = !!json && typeof json === 'object';
       if (!ok) return { available: false, checkedAt: new Date().toISOString(), latencyMs, status: 'invalid-config' };
       // Consider the space "available" for routing if its config is reachable.
-      // Runtime availability (ZeroGPU quota/queue) is dynamic and handled via submit/status with fallback.
+      // Runtime availability (queue/capacity) is dynamic and handled via submit/status with fallback.
       const runtime = json?.runtime;
       let status = 'reachable';
       if (runtime && typeof runtime === 'object') {
@@ -241,7 +241,7 @@ export class GradioProviderAdapter implements ProviderAdapter {
 
   async getQuota(): Promise<ProviderQuotaInfo> {
     return {
-      documentedFreeQuota: this.cfg.documentedQuota || 'Community free tier (ZeroGPU/public Space). Quotas are provider-managed and may be shared or limited; not independently verifiable via API.',
+      documentedFreeQuota: this.cfg.documentedQuota || 'Free public Hugging Face Space (shared). Capacity and queue are provider-managed and may be limited; not independently verifiable via API.',
       queueStatus: 'Unknown (check at generation time)',
       notes: this.cfg.notes || [],
     };

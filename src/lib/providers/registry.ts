@@ -22,17 +22,17 @@ function pickSeed(seed?: number) {
 
 const ltxDistilled: GradioEndpointConfig = {
   key: 'ltx-video-distilled',
-  displayName: 'Lightricks LTX-Video 0.9.8 Distilled (ZeroGPU Space)',
+  displayName: 'Lightricks LTX-Video 0.9.8 Distilled (Hugging Face Space)',
   modelKey: 'ltx-video-0.9.8-distilled',
   modelDisplayName: 'LTX-Video 0.9.8 13B Distilled',
   spaceUrl: 'https://lightricks-ltx-video-distilled.hf.space',
   apiNameText: 'text_to_video',
   apiNameImage: 'image_to_video',
   priority: 10,
-  documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared). Availability and queue depend on provider load.',
+  documentedQuota: 'Free public Hugging Face Space (shared). Availability and queue depend on provider load.',
   notes: [
     'Public Hugging Face Space (Gradio API). Supports text-to-video and image-to-video.',
-    'Free usage is subject to ZeroGPU/community quota and queue; availability may vary.',
+    'Free usage is shared and queue-based; availability may vary.',
   ],
   capabilities: {
     textToVideo: true,
@@ -99,99 +99,18 @@ const ltxDistilled: GradioEndpointConfig = {
   },
 };
 
-const ltxDistilledOptimized: GradioEndpointConfig = {
-  key: 'ltx-video-distilled-optimized',
-  displayName: 'LTX-Video Distilled (ZeroGPU Optimized Space)',
-  modelKey: 'ltx-video-0.9.8-distilled',
-  modelDisplayName: 'LTX-Video 0.9.8 13B Distilled',
-  spaceUrl: 'https://deeprat-ltx-video-zerogpu-optimized.hf.space',
-  apiNameText: 'text_to_video',
-  apiNameImage: 'image_to_video',
-  priority: 12,
-  documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared).',
-  notes: [
-    'Community-hosted LTX-Video 0.9.8 distilled Space (Gradio API).',
-    'Supports text-to-video and image-to-video; availability/quota depend on the Space.',
-  ],
-  capabilities: {
-    textToVideo: true,
-    imageToVideo: true,
-    negativePrompt: true,
-    seed: true,
-    aspectRatios: ['16:9', '9:16', '1:1'],
-    minDurationSec: 0.3,
-    maxDurationSec: 8.5,
-    resolutions: ['256-1280 (multiples of 32)'],
-    notes: ['LTX distilled variant; short clips.'],
-  },
-  buildTextArgs: (input) => {
-    const { width, height } = dimsForAspect(input.aspectRatio);
-    const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
-    const { seed, randomize } = pickSeed(input.seed);
-    return [
-      input.prompt,
-      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
-      '',
-      '',
-      clamp32(height),
-      clamp32(width),
-      'text-to-video',
-      duration,
-      9,
-      seed,
-      randomize,
-      1,
-      true,
-      false,
-    ];
-  },
-  buildImageArgs: (input, uploadedImage) => {
-    const { width, height } = dimsForAspect(input.aspectRatio);
-    const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
-    const { seed, randomize } = pickSeed(input.seed);
-    return [
-      input.prompt,
-      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
-      uploadedImage,
-      '',
-      clamp32(height),
-      clamp32(width),
-      'image-to-video',
-      duration,
-      9,
-      seed,
-      randomize,
-      1,
-      true,
-      false,
-    ];
-  },
-  extractVideo: (data) => {
-    if (Array.isArray(data)) {
-      const first = data[0] as any;
-      const seed = typeof data[1] === 'number' ? data[1] : undefined;
-      if (first && typeof first === 'object') {
-        if (first.video) return { file: first.video, seed };
-        if (first.path || first.url) return { file: first, seed };
-      }
-      if (typeof first === 'string') return { file: first, seed };
-    }
-    return null;
-  },
-};
-
 const cogVideoX2B: GradioEndpointConfig = {
   key: 'cogvideox-2b',
-  displayName: 'ZhipuAI CogVideoX-2B (ZeroGPU Space)',
+  displayName: 'ZhipuAI CogVideoX-2B (Hugging Face Space)',
   modelKey: 'cogvideox-2b',
   modelDisplayName: 'CogVideoX-2B',
   spaceUrl: 'https://zai-org-cogvideox-2b-space.hf.space',
   apiNameText: 'generate',
   priority: 20,
-  documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared).',
+  documentedQuota: 'Free public Hugging Face Space (shared). Availability and queue depend on provider load.',
   notes: [
     'Public Hugging Face Space (Gradio API). Text-to-video only.',
-    'Free usage is subject to ZeroGPU/community quota and queue; availability may vary.',
+    'Free usage is shared and queue-based; availability may vary.',
   ],
   capabilities: {
     textToVideo: true,
@@ -448,7 +367,6 @@ const wan22I2V: GradioEndpointConfig = {
 
 export const providerConfigs: GradioEndpointConfig[] = [
   ltxDistilled,
-  ltxDistilledOptimized,
   cogVideoX2B,
   wan21FastI2V,
   wan22I2V,
