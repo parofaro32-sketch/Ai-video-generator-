@@ -29,7 +29,7 @@ export async function POST(req: Request) {
           await prisma.user.update({ where: { id: existing.id }, data: { name } }).catch(() => {});
           existing.name = name;
         }
-        await createSession(existing.id);
+        await createSession({ id: existing.id, email: existing.email, name: existing.name });
         return NextResponse.json({ user: { id: existing.id, email: existing.email, name: existing.name } });
       }
       if (isUsingFallbackDb) {
@@ -37,14 +37,14 @@ export async function POST(req: Request) {
         const passwordHash = await hashPassword(password);
         const updated = await prisma.user.update({ where: { id: existing.id }, data: { passwordHash, ...(name ? { name } : {}) } }).catch(() => null);
         const user = updated || existing;
-        await createSession(user.id);
+        await createSession({ id: user.id, email: user.email, name: user.name ?? name });
         return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name ?? name } });
       }
       return NextResponse.json({ error: 'Email already registered. Please sign in.' }, { status: 409 });
     }
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.create({ data: { email, passwordHash, name } });
-    await createSession(user.id);
+    await createSession({ id: user.id, email: user.email, name: user.name });
     return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });
   } catch (e: any) {
     if (isDatabaseConfigurationError(e)) {

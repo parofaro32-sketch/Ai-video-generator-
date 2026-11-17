@@ -27,14 +27,14 @@ export async function POST(req: Request) {
       }
       const passwordHash = await hashPassword(password);
       user = await prisma.user.create({ data: { email, passwordHash, name: null } });
-      await createSession(user.id);
+      await createSession({ id: user.id, email: user.email, name: user.name });
       return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });
     }
 
     if (!user) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
-    await createSession(user.id);
+    await createSession({ id: user.id, email: user.email, name: user.name });
     return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });
   } catch (e: any) {
     if (isDatabaseConfigurationError(e)) {
