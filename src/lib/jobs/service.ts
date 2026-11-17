@@ -117,26 +117,41 @@ async function logEvent(jobId: string, level: string, message: string, data?: an
 async function trySubmit(job: any): Promise<boolean> {
   const tried = new Set<string>(Array.isArray((job.providerMeta as any)?.triedProviders) ? (job.providerMeta as any).triedProviders : []);
   if (job.providerKey) tried.add(job.providerKey);
-  const candidates = await selectProviders({
+
+  let candidates = await selectProviders({
     type: job.type as GenerationType,
     requestedModelKey: job.requestedModelKey,
     requestedProviderKey: (job.settings as any)?.requestedProviderKey || null,
     excludeProviderKeys: Array.from(tried),
   });
 
+  // If a specifically requested model/provider has no remaining compatible candidates,
+  // fall back to any compatible provider so generation can still proceed.
+  if (candidates.length === 0 && (job.requestedModelKey || (job.settings as any)?.requestedProviderKey)) {
+    await logEvent(job.id, 'info', 'Requested model/provider unavailable; falling back to automatic provider selection');
+    candidates = await selectProviders({
+      type: job.type as GenerationType,
+      requestedModelKey: null,
+      requestedProviderKey: null,
+      excludeProviderKeys: Array.from(tried),
+    });
+  }
+
   if (candidates.length === 0) {
+    const typeLabel = job.type === 'image_to_video' ? 'image-to-video' : 'text-to-video';
     await prisma.generationJob.update({
       where: { id: job.id },
       data: {
         status: 'failed',
-        lastError: 'No compatible free provider is currently available. Please try again later.',
+        lastError: `No compatible ${typeLabel} providers are configured or currently available for this request. Try automatic model selection or a different mode.`,
         completedAt: new Date(),
       },
     });
-    await logEvent(job.id, 'error', 'No compatible free provider available');
+    await logEvent(job.id, 'error', 'No compatible provider candidates available', { type: job.type, requestedModelKey: job.requestedModelKey || null });
     return false;
   }
 
+  const errors: string[] = [];
   for (const cand of candidates) {
     const provider = cand.adapter;
     await prisma.generationJob.update({
@@ -173,6 +188,7 @@ async function trySubmit(job: any): Promise<boolean> {
       return true;
     } catch (e: any) {
       const msg = e?.message || String(e);
+      errors.push(`${provider.displayName}: ${msg.slice(0, 180)}`);
       await logEvent(job.id, 'warn', `Provider ${provider.displayName} submit failed: ${msg}`);
       await recordProviderFailure(provider.key, msg).catch(() => {});
       await prisma.providerMetric.create({ data: { providerKey: provider.key, success: false, errorMessage: msg.slice(0, 500), jobId: job.id } }).catch(() => {});
@@ -182,11 +198,16 @@ async function trySubmit(job: any): Promise<boolean> {
     }
   }
 
+  const summary = errors.length ? ` Last errors: ${errors.slice(-3).join(' | ')}` : '';
   await prisma.generationJob.update({
     where: { id: job.id },
-    data: { status: 'failed', lastError: 'All compatible providers failed to accept the job. Please try again later.', completedAt: new Date() },
+    data: {
+      status: 'failed',
+      lastError: `All compatible providers failed to accept the job. Free public Spaces may be busy, rate-limited, or temporarily unavailable.${summary}`.slice(0, 1000),
+      completedAt: new Date(),
+    },
   });
-  await logEvent(job.id, 'error', 'All compatible providers failed during submission');
+  await logEvent(job.id, 'error', 'All compatible providers failed during submission', { errors: errors.slice(-5) });
   return false;
 }
 

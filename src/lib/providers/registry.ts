@@ -15,6 +15,11 @@ function clamp32(v: number, min = 256, max = 1280) {
   return Math.round(c / 32) * 32;
 }
 
+function pickSeed(seed?: number) {
+  if (typeof seed === 'number' && Number.isFinite(seed)) return { seed: Math.max(0, Math.floor(seed)), randomize: false };
+  return { seed: Math.floor(Math.random() * 2_147_483_647), randomize: true };
+}
+
 const ltxDistilled: GradioEndpointConfig = {
   key: 'ltx-video-distilled',
   displayName: 'Lightricks LTX-Video 0.9.8 Distilled (ZeroGPU Space)',
@@ -26,9 +31,8 @@ const ltxDistilled: GradioEndpointConfig = {
   priority: 10,
   documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared). Availability and queue depend on provider load.',
   notes: [
-    'Verified running on ZeroGPU at integration time via Hugging Face Space runtime API.',
-    'Supports text-to-video and image-to-video via Gradio API.',
-    'Actual duration/resolution subject to model and Space limits.',
+    'Public Hugging Face Space (Gradio API). Supports text-to-video and image-to-video.',
+    'Free usage is subject to ZeroGPU/community quota and queue; availability may vary.',
   ],
   capabilities: {
     textToVideo: true,
@@ -44,47 +48,125 @@ const ltxDistilled: GradioEndpointConfig = {
   buildTextArgs: (input) => {
     const { width, height } = dimsForAspect(input.aspectRatio);
     const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
-    const seed = input.seed ?? 42;
-    const randomize = input.seed == null;
+    const { seed, randomize } = pickSeed(input.seed);
     return [
-      input.prompt, // prompt
-      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted', // negative_prompt
-      '', // input_image_filepath (not used)
-      '', // input_video_filepath (not used)
-      clamp32(height), // height_ui
-      clamp32(width), // width_ui
-      'text-to-video', // mode
-      duration, // duration_ui
-      9, // ui_frames_to_use (default)
-      seed, // seed_ui
-      randomize, // randomize_seed
-      1, // ui_guidance_scale
-      true, // improve_texture_flag
+      input.prompt,
+      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
+      '',
+      '',
+      clamp32(height),
+      clamp32(width),
+      'text-to-video',
+      duration,
+      9,
+      seed,
+      randomize,
+      1,
+      true,
     ];
   },
   buildImageArgs: (input, uploadedImage) => {
     const { width, height } = dimsForAspect(input.aspectRatio);
     const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
-    const seed = input.seed ?? 42;
-    const randomize = input.seed == null;
+    const { seed, randomize } = pickSeed(input.seed);
     return [
-      input.prompt, // prompt
-      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted', // negative_prompt
-      uploadedImage, // input_image_filepath
-      '', // input_video_filepath
-      clamp32(height), // height_ui
-      clamp32(width), // width_ui
-      'image-to-video', // mode
-      duration, // duration_ui
-      9, // ui_frames_to_use
-      seed, // seed_ui
-      randomize, // randomize_seed
-      1, // ui_guidance_scale
-      true, // improve_texture_flag
+      input.prompt,
+      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
+      uploadedImage,
+      '',
+      clamp32(height),
+      clamp32(width),
+      'image-to-video',
+      duration,
+      9,
+      seed,
+      randomize,
+      1,
+      true,
     ];
   },
   extractVideo: (data) => {
-    // expected: [ {video: FileData, subtitles: null}, seed ]
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      const seed = typeof data[1] === 'number' ? data[1] : undefined;
+      if (first && typeof first === 'object') {
+        if (first.video) return { file: first.video, seed };
+        if (first.path || first.url) return { file: first, seed };
+      }
+      if (typeof first === 'string') return { file: first, seed };
+    }
+    return null;
+  },
+};
+
+const ltxDistilledOptimized: GradioEndpointConfig = {
+  key: 'ltx-video-distilled-optimized',
+  displayName: 'LTX-Video Distilled (ZeroGPU Optimized Space)',
+  modelKey: 'ltx-video-0.9.8-distilled',
+  modelDisplayName: 'LTX-Video 0.9.8 13B Distilled',
+  spaceUrl: 'https://deeprat-ltx-video-zerogpu-optimized.hf.space',
+  apiNameText: 'text_to_video',
+  apiNameImage: 'image_to_video',
+  priority: 12,
+  documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared).',
+  notes: [
+    'Community-hosted LTX-Video 0.9.8 distilled Space (Gradio API).',
+    'Supports text-to-video and image-to-video; availability/quota depend on the Space.',
+  ],
+  capabilities: {
+    textToVideo: true,
+    imageToVideo: true,
+    negativePrompt: true,
+    seed: true,
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    minDurationSec: 0.3,
+    maxDurationSec: 8.5,
+    resolutions: ['256-1280 (multiples of 32)'],
+    notes: ['LTX distilled variant; short clips.'],
+  },
+  buildTextArgs: (input) => {
+    const { width, height } = dimsForAspect(input.aspectRatio);
+    const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
+    const { seed, randomize } = pickSeed(input.seed);
+    return [
+      input.prompt,
+      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
+      '',
+      '',
+      clamp32(height),
+      clamp32(width),
+      'text-to-video',
+      duration,
+      9,
+      seed,
+      randomize,
+      1,
+      true,
+      false,
+    ];
+  },
+  buildImageArgs: (input, uploadedImage) => {
+    const { width, height } = dimsForAspect(input.aspectRatio);
+    const duration = Math.max(0.3, Math.min(8.5, input.durationSec ?? 2));
+    const { seed, randomize } = pickSeed(input.seed);
+    return [
+      input.prompt,
+      input.negativePrompt ?? 'worst quality, inconsistent motion, blurry, jittery, distorted',
+      uploadedImage,
+      '',
+      clamp32(height),
+      clamp32(width),
+      'image-to-video',
+      duration,
+      9,
+      seed,
+      randomize,
+      1,
+      true,
+      false,
+    ];
+  },
+  extractVideo: (data) => {
     if (Array.isArray(data)) {
       const first = data[0] as any;
       const seed = typeof data[1] === 'number' ? data[1] : undefined;
@@ -108,8 +190,8 @@ const cogVideoX2B: GradioEndpointConfig = {
   priority: 20,
   documentedQuota: 'Hugging Face ZeroGPU/public Space quota (dynamic, shared).',
   notes: [
-    'Verified running on ZeroGPU at integration time.',
-    'Text-to-video only (per exposed API). Fixed/default output characteristics may apply.',
+    'Public Hugging Face Space (Gradio API). Text-to-video only.',
+    'Free usage is subject to ZeroGPU/community quota and queue; availability may vary.',
   ],
   capabilities: {
     textToVideo: true,
@@ -125,12 +207,11 @@ const cogVideoX2B: GradioEndpointConfig = {
   buildTextArgs: (input) => {
     return [
       input.prompt,
-      50, // num_inference_steps (default)
-      6, // guidance_scale (default)
+      50,
+      6,
     ];
   },
   extractVideo: (data) => {
-    // returns [video, download_video_file, download_gif_file]
     if (Array.isArray(data)) {
       const first = data[0] as any;
       if (first && typeof first === 'object') {
@@ -143,7 +224,219 @@ const cogVideoX2B: GradioEndpointConfig = {
   },
 };
 
-export const providerConfigs: GradioEndpointConfig[] = [ltxDistilled, cogVideoX2B];
+const zeroscopeV2: GradioEndpointConfig = {
+  key: 'zeroscope-v2',
+  displayName: 'Zeroscope v2 (Text-to-Video Space)',
+  modelKey: 'zeroscope-v2',
+  modelDisplayName: 'Zeroscope v2 (576w)',
+  spaceUrl: 'https://hysts-zeroscope-v2.hf.space',
+  apiNameText: 'run',
+  priority: 25,
+  documentedQuota: 'Free public Hugging Face Space quota (dynamic, shared).',
+  notes: [
+    'Public Hugging Face Space (Gradio API). Text-to-video.',
+    'Output characteristics depend on the Space/model defaults; availability may vary.',
+  ],
+  capabilities: {
+    textToVideo: true,
+    imageToVideo: false,
+    negativePrompt: false,
+    seed: true,
+    aspectRatios: ['16:9'],
+    minDurationSec: 1,
+    maxDurationSec: 4,
+    notes: ['T2V only. Controls: frames (24-48), inference steps (10-50).'],
+  },
+  buildTextArgs: (input) => {
+    const { seed } = pickSeed(input.seed);
+    const steps = 25;
+    // Approximate frames from requested duration (model/space dependent)
+    const frames = Math.max(24, Math.min(48, Math.round((input.durationSec ?? 2) * 12)));
+    return [input.prompt, seed, frames, steps];
+  },
+  extractVideo: (data) => {
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      if (first && typeof first === 'object') {
+        if (first.video) return { file: first.video };
+        if (first.path || first.url) return { file: first };
+      }
+      if (typeof first === 'string') return { file: first };
+    }
+    if (data && typeof data === 'object') {
+      const d = data as any;
+      if (d.video || d.path || d.url) return { file: d.video || d };
+    }
+    return null;
+  },
+};
+
+const modelscopeT2V: GradioEndpointConfig = {
+  key: 'modelscope-text-to-video',
+  displayName: 'ModelScope Text-to-Video (1.7B Space)',
+  modelKey: 'modelscope-t2v-1.7b',
+  modelDisplayName: 'ModelScope Text-to-Video 1.7B',
+  spaceUrl: 'https://mediasynthesismuseum-modelscope-text-to-video.hf.space',
+  apiNameText: 'generate_1',
+  priority: 30,
+  documentedQuota: 'Free public Hugging Face Space quota (dynamic, shared).',
+  notes: [
+    'Public Hugging Face Space (Gradio API). Text-to-video (ModelScope 1.7B).',
+    'Non-commercial/model-license terms may apply; availability may vary.',
+  ],
+  capabilities: {
+    textToVideo: true,
+    imageToVideo: false,
+    negativePrompt: false,
+    seed: true,
+    aspectRatios: ['16:9'],
+    minDurationSec: 1,
+    maxDurationSec: 4,
+    notes: ['T2V only. Controls: frames (16-100), inference steps (10-50).'],
+  },
+  buildTextArgs: (input) => {
+    const seed = (typeof input.seed === 'number' && Number.isFinite(input.seed)) ? Math.max(-1, Math.floor(input.seed)) : -1;
+    const numFrames = Math.max(16, Math.min(48, Math.round((input.durationSec ?? 2) * 12) || 24));
+    const steps = 25;
+    return [input.prompt, seed, numFrames, steps];
+  },
+  extractVideo: (data) => {
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      if (first && typeof first === 'object') {
+        if (first.video) return { file: first.video };
+        if (first.path || first.url) return { file: first };
+      }
+      if (typeof first === 'string') return { file: first };
+    }
+    if (data && typeof data === 'object') {
+      const d = data as any;
+      if (d.video || d.path || d.url) return { file: d.video || d };
+    }
+    return null;
+  },
+};
+
+const wan21FastI2V: GradioEndpointConfig = {
+  key: 'wan2-1-fast-i2v',
+  displayName: 'Wan 2.1 Fast Image-to-Video (14B CausVid LoRA Space)',
+  modelKey: 'wan2.1-i2v-14b-fast',
+  modelDisplayName: 'Wan 2.1 I2V 14B (Fast/CausVid)',
+  spaceUrl: 'https://multimodalart-wan2-1-fast.hf.space',
+  apiNameImage: 'generate_video',
+  priority: 22,
+  documentedQuota: 'Free public Hugging Face Space quota (dynamic, shared).',
+  notes: [
+    'Public Hugging Face Space (Gradio API). Image-to-video (Wan 2.1 14B fast).',
+    'Requires an input image; availability/quota depend on the Space.',
+  ],
+  capabilities: {
+    textToVideo: false,
+    imageToVideo: true,
+    negativePrompt: true,
+    seed: true,
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    minDurationSec: 0.3,
+    maxDurationSec: 3.4,
+    resolutions: ['128-896 (multiples of 32)'],
+    notes: ['I2V only. Fast distilled Wan 2.1 variant; short clips.'],
+  },
+  buildImageArgs: (input, uploadedImage) => {
+    const { width, height } = dimsForAspect(input.aspectRatio);
+    const { seed, randomize } = pickSeed(input.seed);
+    const duration = Math.max(0.3, Math.min(3.4, input.durationSec ?? 2));
+    const negative = input.negativePrompt ?? 'Bright tones, overexposed, static, blurred details, subtitles, worst quality, low quality, deformed, watermark, text';
+    // inputs: [image, prompt, height, width, negative_prompt, duration, guidance_scale, inference_steps, seed, randomize_seed]
+    return [
+      uploadedImage,
+      input.prompt,
+      clamp32(height, 128, 896),
+      clamp32(width, 128, 896),
+      negative,
+      duration,
+      1,
+      4,
+      seed,
+      randomize,
+    ];
+  },
+  extractVideo: (data) => {
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      const seed = typeof data[1] === 'number' ? data[1] : undefined;
+      if (first && typeof first === 'object') {
+        if (first.video) return { file: first.video, seed };
+        if (first.path || first.url) return { file: first, seed };
+      }
+      if (typeof first === 'string') return { file: first, seed };
+    }
+    return null;
+  },
+};
+
+const wan22I2V: GradioEndpointConfig = {
+  key: 'wan2-2-i2v-14b',
+  displayName: 'Wan 2.2 Image-to-Video (14B Space)',
+  modelKey: 'wan2.2-i2v-14b',
+  modelDisplayName: 'Wan 2.2 I2V 14B',
+  spaceUrl: 'https://upsampler-wan-2-2-14b-image-to-video.hf.space',
+  apiNameImage: 'generate_video',
+  priority: 24,
+  documentedQuota: 'Free public Hugging Face Space quota (dynamic, shared).',
+  notes: [
+    'Public Hugging Face Space (Gradio API). Image-to-video (Wan 2.2 14B).',
+    'Requires an input image; availability/quota depend on the Space.',
+  ],
+  capabilities: {
+    textToVideo: false,
+    imageToVideo: true,
+    negativePrompt: true,
+    seed: true,
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    minDurationSec: 0.5,
+    maxDurationSec: 5,
+    notes: ['I2V only. Animates a source image; output size/behavior depend on the Space.'],
+  },
+  buildImageArgs: (input, uploadedImage) => {
+    const { seed, randomize } = pickSeed(input.seed);
+    const duration = Math.max(0.5, Math.min(5, input.durationSec ?? 3.5));
+    const negative = input.negativePrompt ?? '色调艳丽, 过曝, 静态, 细节模糊不清, 字幕, 最差质量, 低质量, 丑陋的, 畸形的, 静止不动的画面, 杂乱的背景, 水印, 文字';
+    // inputs: [image, prompt, inference_steps, negative_prompt, duration, guidance_scale_high, guidance_scale_low, seed, randomize_seed]
+    return [
+      uploadedImage,
+      input.prompt,
+      6,
+      negative,
+      duration,
+      1,
+      1,
+      seed,
+      randomize,
+    ];
+  },
+  extractVideo: (data) => {
+    if (Array.isArray(data)) {
+      const first = data[0] as any;
+      const seed = typeof data[1] === 'number' ? data[1] : undefined;
+      if (first && typeof first === 'object') {
+        if (first.video) return { file: first.video, seed };
+        if (first.path || first.url) return { file: first, seed };
+      }
+      if (typeof first === 'string') return { file: first, seed };
+    }
+    return null;
+  },
+};
+
+export const providerConfigs: GradioEndpointConfig[] = [
+  ltxDistilled,
+  ltxDistilledOptimized,
+  cogVideoX2B,
+  wan21FastI2V,
+  wan22I2V,
+  zeroscopeV2,
+  modelscopeT2V,
+];
 
 export function getProviderAdapters(): ProviderAdapter[] {
   return providerConfigs.map((c) => new GradioProviderAdapter(c));

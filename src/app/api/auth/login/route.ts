@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma, assertDatabaseConfigured, isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
-import { verifyPassword } from '@/lib/auth/password';
+import { prisma, assertDatabaseConfigured, isDatabaseConfigurationError, databaseConfigErrorResponse, isUsingFallbackDb } from '@/lib/db';
+import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 
 const schema = z.object({
@@ -16,9 +16,23 @@ export async function POST(req: Request) {
     const parsed = schema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
     const email = parsed.data.email.toLowerCase().trim();
-    const user = await prisma.user.findUnique({ where: { email } });
+    const password = parsed.data.password;
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    // In fallback (no external DB) mode, storage may be ephemeral in serverless environments.
+    // Auto-provision on sign-in if the account record is not found so users can always access.
+    if (!user && isUsingFallbackDb) {
+      if (password.length < 8) {
+        return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
+      }
+      const passwordHash = await hashPassword(password);
+      user = await prisma.user.create({ data: { email, passwordHash, name: null } });
+      await createSession(user.id);
+      return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });
+    }
+
     if (!user) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
-    const ok = await verifyPassword(parsed.data.password, user.passwordHash);
+    const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     await createSession(user.id);
     return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });

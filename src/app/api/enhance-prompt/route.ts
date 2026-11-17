@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireApiUser } from '@/lib/auth/guards';
 
 const schema = z.object({ prompt: z.string().min(1).max(4000), type: z.enum(['text_to_video', 'image_to_video']).optional() });
 
@@ -20,8 +19,6 @@ function enhance(prompt: string, type?: string) {
 }
 
 export async function POST(req: Request) {
-  const { user, response } = await requireApiUser();
-  if (!user) return response!;
   try {
     const body = await req.json();
     const parsed = schema.safeParse(body);
