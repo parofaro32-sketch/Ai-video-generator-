@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/auth/guards';
-import { prisma } from '@/lib/db';
+import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -66,6 +66,7 @@ export async function POST(_req: Request, ctx: any) {
       await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
     }
   } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
     return NextResponse.json({ error: e?.message || 'Stitch failed' }, { status: 500 });
   }
 }

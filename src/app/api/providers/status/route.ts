@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
 import { getProviderAdapters } from '@/lib/providers/registry';
 import { refreshProviderHealth } from '@/lib/providers/router';
 
@@ -12,7 +12,14 @@ export async function GET(req: Request) {
       // best-effort refresh a few providers (avoid long waits)
       await Promise.all(adapters.map((a) => refreshProviderHealth(a).catch(() => null)));
     }
-    const rows = await prisma.providerHealth.findMany({ orderBy: { updatedAt: 'desc' } });
+    let rows: any[] = [];
+    let dbWarning: string | null = null;
+    try {
+      rows = await prisma.providerHealth.findMany({ orderBy: { updatedAt: 'desc' } });
+    } catch (e) {
+      if (isDatabaseConfigurationError(e)) dbWarning = 'Database not configured; showing configured providers without persisted health history.';
+      else throw e;
+    }
     // include configured adapters not yet in DB
     const known = new Set(rows.map(r => r.providerKey));
     const configured = adapters.map(a => {
@@ -39,8 +46,11 @@ export async function GET(req: Request) {
       };
     });
     const dbOnly = rows.filter(r => !adapters.some(a => a.key === r.providerKey));
-    return NextResponse.json({ providers: [...configured, ...dbOnly], refreshed: refresh, at: new Date().toISOString() });
+    return NextResponse.json({ providers: [...configured, ...dbOnly], refreshed: refresh, at: new Date().toISOString(), ...(dbWarning ? { warning: dbWarning } : {}) });
   } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) {
+      return NextResponse.json({ ...databaseConfigErrorResponse(), providers: [] }, { status: 503 });
+    }
     return NextResponse.json({ error: e?.message || 'Failed to load provider status' }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/auth/guards';
-import { prisma } from '@/lib/db';
+import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
 import { getStorage } from '@/lib/storage';
 
 export async function DELETE(_req: Request, ctx: any) {
@@ -22,6 +22,7 @@ export async function DELETE(_req: Request, ctx: any) {
     } catch {}
     return NextResponse.json({ ok: true });
   } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
     return NextResponse.json({ error: e?.message || 'Delete failed' }, { status: 500 });
   }
 }

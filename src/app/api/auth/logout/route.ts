@@ -5,7 +5,8 @@ export async function POST() {
   try {
     await deleteSession();
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Logout failed' }, { status: 500 });
+  } catch {
+    // best-effort logout (clear cookie even if DB unavailable)
+    return NextResponse.json({ ok: true });
   }
 }

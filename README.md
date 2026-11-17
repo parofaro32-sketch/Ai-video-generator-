@@ -96,7 +96,7 @@ npm start
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | PostgreSQL connection string. The app also auto-detects `POSTGRES_PRISMA_URL`/`POSTGRES_URL` (Vercel Postgres integration) if `DATABASE_URL` is unset. |
 | `AUTH_SECRET` | Yes (prod) | Long random secret for auth/session security context |
 | `BLOB_READ_WRITE_TOKEN` | No | Vercel Blob token for persistent video storage on Vercel (falls back to local `.data/storage`) |
 | `HF_TOKEN` | No | Optional Hugging Face token for authenticated access to spaces where permitted (never exposed to client) |
@@ -104,10 +104,10 @@ npm start
 
 ## Vercel Deployment
 
-1. Provision PostgreSQL (Vercel Postgres/Neon) and set `DATABASE_URL`.
-2. Set `AUTH_SECRET` and optionally `BLOB_READ_WRITE_TOKEN` for durable video storage.
-3. Run `npx prisma db push` against the production database during deploy/setup.
-4. Deploy; generation jobs advance via status polling (serverless-friendly). Long FFmpeg stitching requires an environment with FFmpeg available; otherwise clips remain downloadable individually.
+1. Provision PostgreSQL (Vercel Postgres/Neon) and connect it to the project so `DATABASE_URL` (or `POSTGRES_PRISMA_URL`) is available to runtime and build environments.
+2. Set `AUTH_SECRET` and optionally `BLOB_READ_WRITE_TOKEN` for durable video storage (recommended on Vercel; serverless filesystem is ephemeral).
+3. Run `npx prisma db push` once against the production database (creates tables required for sign-up/auth/jobs/history).
+4. Redeploy with build cache cleared if needed. Generation jobs advance via status polling (serverless-friendly). Long FFmpeg stitching requires an environment with FFmpeg available; otherwise clips remain downloadable individually.
 
 ## Security & Compliance
 

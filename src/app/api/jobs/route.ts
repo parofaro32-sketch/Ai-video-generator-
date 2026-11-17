@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiUser } from '@/lib/auth/guards';
+import { isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
 import { createGenerationJob, processJobUntilSettledOrTimeout } from '@/lib/jobs/service';
 
 const schema = z.object({
@@ -21,14 +22,19 @@ const schema = z.object({
 export async function GET() {
   const { user, response } = await requireApiUser();
   if (!user) return response;
-  const { prisma } = await import('@/lib/db');
-  const jobs = await prisma.generationJob.findMany({
+  try {
+    const { prisma } = await import('@/lib/db');
+    const jobs = await prisma.generationJob.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: 'desc' },
     take: 100,
     include: { outputVideo: true },
   });
-  return NextResponse.json({ jobs });
+    return NextResponse.json({ jobs });
+  } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
+    return NextResponse.json({ error: e?.message || 'Failed to load jobs' }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -57,6 +63,7 @@ export async function POST(req: Request) {
     const updated = await processJobUntilSettledOrTimeout(job.id, user.id, 15000).catch(() => null);
     return NextResponse.json({ job: updated || job, duplicate });
   } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
     return NextResponse.json({ error: e?.message || 'Failed to create job' }, { status: 500 });
   }
 }

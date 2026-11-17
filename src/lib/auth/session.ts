@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
-import { prisma } from '@/lib/db';
+import { prisma, isDatabaseConfigurationError } from '@/lib/db';
 
 const COOKIE_NAME = 'aivg_session';
 const SESSION_DAYS = 30;
@@ -41,20 +41,25 @@ export async function deleteSession() {
 }
 
 export async function getCurrentUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  const tokenHash = hashToken(token);
-  const session = await prisma.session.findUnique({
-    where: { tokenHash },
-    include: { user: true },
-  });
-  if (!session) return null;
-  if (session.expiresAt < new Date()) {
-    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
-    return null;
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+    const tokenHash = hashToken(token);
+    const session = await prisma.session.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+    if (!session) return null;
+    if (session.expiresAt < new Date()) {
+      await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
+      return null;
+    }
+    return session.user;
+  } catch (e) {
+    if (isDatabaseConfigurationError(e)) return null;
+    throw e;
   }
-  return session.user;
 }
 
 export async function requireUser() {

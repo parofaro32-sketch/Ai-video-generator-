@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/auth/guards';
-import { prisma } from '@/lib/db';
+import { prisma, isDatabaseConfigurationError, databaseConfigErrorResponse } from '@/lib/db';
 
 export async function GET() {
   const { user, response } = await requireApiUser();
   if (!user) return response;
-  const setting = await prisma.cleanupSetting.findUnique({ where: { userId: user.id } });
-  return NextResponse.json({ setting: setting || { autoDeleteDays: null, keepFailedJobs: true } });
+  try {
+    const setting = await prisma.cleanupSetting.findUnique({ where: { userId: user.id } });
+    return NextResponse.json({ setting: setting || { autoDeleteDays: null, keepFailedJobs: true } });
+  } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
+    return NextResponse.json({ error: e?.message || 'Failed to load settings' }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -31,6 +36,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ setting, cleaned: true });
   } catch (e: any) {
+    if (isDatabaseConfigurationError(e)) return NextResponse.json(databaseConfigErrorResponse(), { status: 503 });
     return NextResponse.json({ error: e?.message || 'Cleanup failed' }, { status: 500 });
   }
 }
